@@ -1,0 +1,1204 @@
+openapi: 3.0.3
+info:
+  title: 🍅 토마토 스마트팜 API
+  description: |
+    ## 개요
+    SEED FARM 토마토 스마트팜 관리 시스템의 REST API 문서입니다.
+    
+    이 API는 n8n 워크플로우 기반으로 구현되어 있으며, 다음 기능을 제공합니다:
+    
+    - 🎥 **카메라 제어**: 라즈베리파이 카메라 원격 제어
+    - 📊 **데이터 조회**: 실시간/히스토리/요약 데이터 조회
+    - 🤖 **AI 분석**: YOLO 기반 토마토 분석, AI 챗봇
+    - 💰 **시장 가격**: KAMIS 도매가, 온라인 가격 비교
+    - 🌱 **수확량 예측**: ML 모델 기반 예측
+    - 📝 **농장 일지**: 일지 조회/저장
+    
+    ## 서버 환경
+    - **운영 서버**: http://seedfarm.co.kr:5678
+    - **내부 서버**: http://192.168.49.101:5679
+    
+    ## 인증
+    현재 API 키 인증이 필요한 엔드포인트는 `api_key` 파라미터를 사용합니다.
+    
+  version: 1.0.0
+  contact:
+    name: SEED FARM 개발팀
+    email: dev@seedfarm.co.kr
+  license:
+    name: ISC
+
+servers:
+  - url: http://seedfarm.co.kr:5678/webhook
+    description: 운영 서버 (외부 접근용)
+  - url: http://192.168.49.101:5679/webhook
+    description: 내부 서버 (사내망 전용)
+
+tags:
+  - name: 📊 Data
+    description: 토마토 분석 데이터 조회 API
+  - name: 🎥 Camera
+    description: 라즈베리파이 카메라 제어 API
+  - name: 🤖 AI
+    description: AI 챗봇 및 이미지 분석 API
+  - name: 💰 Market
+    description: 시장 가격 정보 API
+  - name: 🌱 Prediction
+    description: 수확량 예측 API
+  - name: 📝 Diary
+    description: 농장 일지 API
+  - name: 🏠 Home
+    description: 앱 홈 화면용 통합 API
+
+paths:
+  # ===== 데이터 조회 API =====
+  /data-realtime:
+    get:
+      tags:
+        - 📊 Data
+      summary: 실시간 토마토 분석 데이터 조회
+      description: |
+        최근 1시간 이내의 마지막 YOLO 분석 결과를 반환합니다.
+        
+        **데이터 출처**: InfluxDB (bucket: minwoo, measurement: predict)
+      operationId: getRealtimeData
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TomatoData'
+              example:
+                Ready: 45
+                Not_Ready: 23
+                Disease_Bad: 2
+                Truss: 8
+        '500':
+          description: 서버 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /data-history:
+    get:
+      tags:
+        - 📊 Data
+      summary: 과거 토마토 분석 데이터 조회
+      description: |
+        지정된 시간 범위의 시계열 데이터를 반환합니다.
+        
+        **사용 예시**:
+        - 최근 30분: `?hours=0.5`
+        - 최근 24시간: `?hours=24`
+        - 최근 1주일: `?hours=168`
+      operationId: getHistoryData
+      parameters:
+        - name: hours
+          in: query
+          description: 조회 기간 (시간 단위)
+          required: false
+          schema:
+            type: number
+            default: 1
+            example: 24
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TomatoDataWithTime'
+              example:
+                data:
+                  - time: "2024-11-21T06:00:00Z"
+                    Ready: 40
+                    Not_Ready: 20
+                    Disease_Bad: 1
+                    Truss: 7
+                  - time: "2024-11-21T06:10:00Z"
+                    Ready: 42
+                    Not_Ready: 21
+                    Disease_Bad: 1
+                    Truss: 7
+
+  /data-summary:
+    get:
+      tags:
+        - 📊 Data
+      summary: 오늘 일일 요약 데이터 조회
+      description: |
+        오늘 00:00:00 (KST) 부터 현재까지의 누적 데이터를 반환합니다.
+      operationId: getDailySummary
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailySummary'
+              example:
+                total_ready: 450
+                total_not_ready: 230
+                total_disease: 15
+                avg_truss: 8
+
+  # ===== 카메라 제어 API =====
+  /camera-capture:
+    post:
+      tags:
+        - 🎥 Camera
+      summary: 즉시 촬영 및 분석
+      description: |
+        라즈베리파이 카메라로 즉시 촬영하고 YOLO 분석을 수행합니다.
+        
+        **처리 순서**:
+        1. 라즈베리파이 스냅샷 요청
+        2. YOLO 서버로 이미지 전송
+        3. 분석 결과 InfluxDB 저장
+        4. 결과 반환
+      operationId: captureNow
+      responses:
+        '200':
+          description: 촬영 및 분석 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaptureResponse'
+              example:
+                success: true
+                data:
+                  Ready: 35
+                  Not_Ready: 18
+                  Disease_Bad: 2
+                  Truss: 6
+                  ripeness_rate: 66
+                  disease_rate: 4
+                timestamp: "2024-11-21T07:30:00Z"
+        '500':
+          description: 촬영 실패
+
+  /capture-test:
+    post:
+      tags:
+        - 🎥 Camera
+      summary: 테스트 촬영 (랜덤 데이터)
+      description: |
+        라즈베리파이 없이 테스트용 랜덤 데이터를 생성합니다.
+        
+        **개발/테스트 용도**로만 사용하세요.
+      operationId: captureTest
+      responses:
+        '200':
+          description: 테스트 데이터 생성 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  timestamp:
+                    type: string
+                    format: date-time
+                  data:
+                    $ref: '#/components/schemas/TomatoData'
+
+  /camera-start:
+    post:
+      tags:
+        - 🎥 Camera
+      summary: 자동 모니터링 시작
+      description: 설정된 간격으로 자동 촬영을 시작합니다.
+      operationId: startMonitoring
+      responses:
+        '200':
+          description: 모니터링 시작 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CameraStatusResponse'
+
+  /camera-stop:
+    post:
+      tags:
+        - 🎥 Camera
+      summary: 자동 모니터링 중지
+      description: 자동 촬영을 중지합니다.
+      operationId: stopMonitoring
+      responses:
+        '200':
+          description: 모니터링 중지 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CameraStatusResponse'
+
+  /camera-status:
+    get:
+      tags:
+        - 🎥 Camera
+      summary: 카메라 상태 조회
+      description: 현재 카메라의 모니터링 상태, 설정을 조회합니다.
+      operationId: getCameraStatus
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CameraStatus'
+              example:
+                monitoring: true
+                interval: 600
+                last_capture: "2024-11-21T07:20:00Z"
+                white_balance: "auto"
+
+  /camera-interval:
+    post:
+      tags:
+        - 🎥 Camera
+      summary: 촬영 간격 설정
+      description: |
+        자동 촬영 간격을 설정합니다.
+        
+        **허용 값**: 60(1분), 300(5분), 600(10분), 1800(30분), 3600(1시간)
+      operationId: setCaptureInterval
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - interval
+              properties:
+                interval:
+                  type: integer
+                  description: 촬영 간격 (초)
+                  enum: [60, 300, 600, 1800, 3600]
+                  example: 600
+      responses:
+        '200':
+          description: 설정 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CameraStatusResponse'
+
+  /camera-white-balance:
+    post:
+      tags:
+        - 🎥 Camera
+      summary: 화이트 밸런스 설정
+      description: 카메라 화이트 밸런스 모드를 설정합니다.
+      operationId: setWhiteBalance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - mode
+              properties:
+                mode:
+                  type: string
+                  description: 화이트 밸런스 모드
+                  enum: [auto, fluorescent, tungsten, daylight]
+                  example: auto
+      responses:
+        '200':
+          description: 설정 성공
+
+  # ===== AI API =====
+  /chat-message:
+    post:
+      tags:
+        - 🤖 AI
+      summary: AI 챗봇 메시지 전송
+      description: |
+        토마토 재배 전문 AI 어시스턴트에게 질문합니다.
+        
+        **지원 기능**:
+        - 텍스트만 전송
+        - 텍스트 + 이미지 전송 (토마토 분석 요청)
+        - 이미지만 전송 (자동 YOLO 분석)
+        
+        **특수 기능**:
+        - 생육 데이터 포함 시 수확량 예측 API 자동 호출
+        - 이미지 포함 시 YOLO 분석 후 결과 기반 답변
+      operationId: sendChatMessage
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  description: 사용자 메시지
+                  example: "현재 온도 25도, 습도 70%일 때 예상 수확량은?"
+                image:
+                  type: string
+                  format: binary
+                  description: 토마토 이미지 (JPEG)
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatResponse'
+              example:
+                response: "현재 환경에서 예상 수확량은 약 8.5kg/3.3㎡ 입니다. 🍅 온도가 적정 범위(25-28°C)에 있어 양호합니다..."
+                timestamp: "2024-11-21T07:30:00Z"
+                success: true
+
+  /capture-analyze:
+    post:
+      tags:
+        - 🤖 AI
+      summary: 이미지 YOLO 분석 (FormData)
+      description: |
+        이미지 파일을 YOLO 모델로 분석합니다.
+        
+        **multipart/form-data** 형식으로 이미지를 전송하세요.
+        
+        **지원 형식**: JPEG, PNG
+      operationId: analyzeImage
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - image
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: 토마토 이미지 파일 (JPEG, PNG)
+      responses:
+        '200':
+          description: 분석 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisResponse'
+
+  /disease-diagnosis:
+    post:
+      tags:
+        - 🤖 AI
+      summary: 병해충 진단 (Base64)
+      description: |
+        토마토 이미지를 AI가 분석하여 병해충 상태를 진단합니다.
+        
+        **application/json** 형식으로 Base64 인코딩된 이미지를 전송하세요.
+        
+        **진단 항목**:
+        - 건강 상태 평가 (건강/주의/위험)
+        - 발견된 증상
+        - 원인 분석
+        - 긴급 조치 사항
+        - 치료 방법
+        - 예방 관리
+      operationId: diagnoseDisease
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - image
+              properties:
+                image:
+                  type: string
+                  description: "Base64 인코딩된 이미지 데이터 (data: prefix 제외)"
+                  example: "/9j/4AAQSkZJRgABAQAAAQABAAD..."
+                mimeType:
+                  type: string
+                  description: 이미지 MIME 타입
+                  default: "image/jpeg"
+                  example: "image/jpeg"
+      responses:
+        '200':
+          description: 진단 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiagnosisResponse'
+
+  /raspberry-image:
+    post:
+      tags:
+        - 🤖 AI
+      summary: 라즈베리파이 이미지 수신
+      description: |
+        라즈베리파이에서 촬영한 이미지를 수신하고 자동 분석합니다.
+        
+        **내부 처리 순서**:
+        1. 이미지 수신
+        2. YOLO 분석
+        3. InfluxDB 저장
+        4. 이미지 파일 저장 (김제 실증 데이터)
+      operationId: receiveRaspberryImage
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - image
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: 촬영된 이미지 파일
+      responses:
+        '200':
+          description: 처리 완료
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  # ===== 시장 가격 API =====
+  /market-price:
+    get:
+      tags:
+        - 💰 Market
+      summary: 실시간 시장 가격 조회
+      description: |
+        KAMIS API를 통해 오늘의 토마토 도매 시장 가격을 조회합니다.
+        
+        **데이터 출처**: 농산물유통정보(KAMIS)
+      operationId: getMarketPrice
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketPrice'
+
+  /price-compare:
+    get:
+      tags:
+        - 💰 Market
+      summary: 도매가 vs 온라인가 비교
+      description: |
+        KAMIS 도매 가격과 네이버 쇼핑 온라인 가격을 비교합니다.
+        
+        **비교 항목**:
+        - 도매가 (상품/중품/방울토마토)
+        - 온라인 최저가/중간가/최고가
+        - 마진율 계산
+      operationId: getPriceCompare
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PriceCompare'
+
+  /price-history:
+    get:
+      tags:
+        - 💰 Market
+      summary: 가격 추이 조회
+      description: |
+        기간별 토마토 가격 추이를 조회합니다.
+        
+        **기본값**: 최근 7일
+      operationId: getPriceHistory
+      parameters:
+        - name: start
+          in: query
+          description: 시작일 (YYYY-MM-DD)
+          schema:
+            type: string
+            format: date
+            example: "2024-11-14"
+        - name: end
+          in: query
+          description: 종료일 (YYYY-MM-DD)
+          schema:
+            type: string
+            format: date
+            example: "2024-11-21"
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PriceHistory'
+
+  # ===== 수확량 예측 API =====
+  /yield-prediction:
+    post:
+      tags:
+        - 🌱 Prediction
+      summary: 수확량 예측
+      description: |
+        환경 데이터를 기반으로 ML 모델이 예상 수확량을 예측합니다.
+        
+        **모델 정보**:
+        - 알고리즘: Random Forest
+        - 학습 데이터: 농촌진흥청 스마트팜 DB (103,000+ 데이터)
+        - 정확도: R² = 0.9084
+        
+        **필수 입력**: 온도, 습도
+        **선택 입력**: CO2, 일사량, 생육단계, 시설타입
+      operationId: predictYield
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/YieldPredictionRequest'
+      responses:
+        '200':
+          description: 예측 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/YieldPredictionResponse'
+
+  # ===== 농장 일지 API =====
+  /app/diary:
+    get:
+      tags:
+        - 📝 Diary
+      summary: 일지 목록 조회
+      description: 최근 N일간의 농장 일지를 조회합니다.
+      operationId: getDiaryList
+      parameters:
+        - name: days
+          in: query
+          description: 조회 기간 (일)
+          schema:
+            type: integer
+            default: 7
+            example: 7
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiaryListResponse'
+    post:
+      tags:
+        - 📝 Diary
+      summary: 일지 저장
+      description: 당일 농장 일지를 저장합니다.
+      operationId: saveDiary
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DiaryEntry'
+      responses:
+        '200':
+          description: 저장 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  saved:
+                    $ref: '#/components/schemas/DiaryEntry'
+
+  # ===== 홈 화면 API =====
+  /app/home:
+    get:
+      tags:
+        - 🏠 Home
+      summary: 홈 화면 통합 데이터
+      description: |
+        앱 홈 화면에 필요한 모든 데이터를 한 번에 반환합니다.
+        
+        **포함 데이터**:
+        - 실시간 토마토 분석 결과
+        - 오늘 요약 통계
+        - 알림 목록
+        - 스트리밍 URL
+      operationId: getHomeData
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HomeData'
+
+  /app/chat:
+    post:
+      tags:
+        - 🏠 Home
+      summary: 앱용 간편 채팅
+      description: |
+        앱에서 사용하는 간편 채팅 API입니다.
+        
+        **참고**: API 키 검증이 포함되어 있습니다.
+      operationId: appChat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - message
+              properties:
+                message:
+                  type: string
+                  example: "오늘 토마토 상태 어때?"
+                api_key:
+                  type: string
+                  example: "tomato-farm-2024"
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatResponse'
+
+  /app/analyze:
+    post:
+      tags:
+        - 🏠 Home
+      summary: 앱용 이미지 분석
+      description: 앱에서 촬영한 이미지를 분석합니다.
+      operationId: appAnalyze
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: 분석 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisResponse'
+
+# ===== 컴포넌트 정의 =====
+components:
+  schemas:
+    TomatoData:
+      type: object
+      description: 토마토 분석 결과 (YOLO 4-class)
+      properties:
+        Ready:
+          type: integer
+          description: 수확 가능한 완숙 토마토 개수
+          example: 45
+        Not_Ready:
+          type: integer
+          description: 미성숙 토마토 개수
+          example: 23
+        Disease_Bad:
+          type: integer
+          description: 병해충 감염 토마토 개수
+          example: 2
+        Truss:
+          type: integer
+          description: 화방 (꽃봉우리) 개수
+          example: 8
+
+    TomatoDataWithTime:
+      allOf:
+        - $ref: '#/components/schemas/TomatoData'
+        - type: object
+          properties:
+            time:
+              type: string
+              format: date-time
+              description: 측정 시간
+              example: "2024-11-21T06:00:00Z"
+
+    TomatoDataLowerCase:
+      type: object
+      description: 토마토 분석 결과 (소문자 버전 - 앱용)
+      properties:
+        ready:
+          type: integer
+          example: 45
+        not_ready:
+          type: integer
+          example: 23
+        disease:
+          type: integer
+          example: 2
+        truss:
+          type: integer
+          example: 8
+
+    DailySummary:
+      type: object
+      properties:
+        total_ready:
+          type: integer
+          description: 오늘 누적 수확 가능 토마토
+        total_not_ready:
+          type: integer
+          description: 오늘 누적 미성숙 토마토
+        total_disease:
+          type: integer
+          description: 오늘 누적 병해 토마토
+        avg_truss:
+          type: integer
+          description: 평균 화방 수
+
+    CaptureResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            Ready:
+              type: integer
+            Not_Ready:
+              type: integer
+            Disease_Bad:
+              type: integer
+            Truss:
+              type: integer
+            ripeness_rate:
+              type: integer
+              description: 성숙도 (%)
+            disease_rate:
+              type: integer
+              description: 병해율 (%)
+        timestamp:
+          type: string
+          format: date-time
+
+    CameraStatus:
+      type: object
+      properties:
+        monitoring:
+          type: boolean
+          description: 자동 모니터링 활성화 여부
+        interval:
+          type: integer
+          description: 촬영 간격 (초)
+        last_capture:
+          type: string
+          format: date-time
+          description: 마지막 촬영 시간
+        white_balance:
+          type: string
+          enum: [auto, fluorescent, tungsten, daylight]
+          description: 화이트 밸런스 모드
+
+    CameraStatusResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+
+    ChatResponse:
+      type: object
+      properties:
+        response:
+          type: string
+          description: AI 응답 메시지
+        timestamp:
+          type: string
+          format: date-time
+        success:
+          type: boolean
+
+    AnalysisResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            Ready:
+              type: integer
+            Not_Ready:
+              type: integer
+            Disease_Bad:
+              type: integer
+            Truss:
+              type: integer
+            ripeness_rate:
+              type: integer
+            disease_rate:
+              type: integer
+
+    DiagnosisResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        diagnosis:
+          type: string
+          description: AI 병해충 진단 결과 (마크다운 형식)
+        healthStatus:
+          type: string
+          enum: [건강, 주의, 위험, 오류]
+          description: 건강 상태 판정
+        timestamp:
+          type: string
+          format: date-time
+
+    MarketPrice:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            item_name:
+              type: string
+              example: "토마토"
+            kind_name:
+              type: string
+              example: "완숙토마토"
+            unit:
+              type: string
+              example: "5kg"
+            rank:
+              type: string
+              example: "상품"
+            price:
+              type: integer
+              description: 오늘 가격 (원/kg)
+              example: 3500
+            yesterday_price:
+              type: integer
+              description: 어제 가격
+            change:
+              type: integer
+              description: 가격 변동
+            change_rate:
+              type: number
+              description: 변동률 (%)
+            direction:
+              type: string
+              enum: [up, down, same]
+            date:
+              type: string
+              format: date
+
+    PriceCompare:
+      type: object
+      properties:
+        success:
+          type: boolean
+        date:
+          type: string
+          format: date
+        wholesale_summary:
+          type: object
+          description: 도매가 요약 (원/kg)
+          properties:
+            high:
+              type: integer
+              description: 상품
+            mid:
+              type: integer
+              description: 중품
+            cherry:
+              type: integer
+              description: 방울토마토
+        online_summary:
+          type: object
+          description: 온라인가 요약
+          properties:
+            lowest_price:
+              type: integer
+            lowest_mall:
+              type: string
+            median_price:
+              type: integer
+            average_price:
+              type: integer
+            mall_count:
+              type: integer
+        comparison:
+          type: array
+          items:
+            type: object
+            properties:
+              grade:
+                type: string
+              wholesale_price:
+                type: integer
+              online_lowest:
+                type: integer
+              margin_rate:
+                type: integer
+                description: 마진율 (%)
+
+    PriceHistory:
+      type: object
+      properties:
+        success:
+          type: boolean
+        period:
+          type: object
+          properties:
+            start:
+              type: string
+              format: date
+            end:
+              type: string
+              format: date
+        count:
+          type: integer
+          description: 데이터 건수
+        stats:
+          type: object
+          properties:
+            high:
+              $ref: '#/components/schemas/PriceStats'
+            mid:
+              $ref: '#/components/schemas/PriceStats'
+            cherry:
+              $ref: '#/components/schemas/PriceStats'
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                format: date
+              high:
+                type: integer
+              mid:
+                type: integer
+              cherry:
+                type: integer
+
+    PriceStats:
+      type: object
+      properties:
+        min:
+          type: integer
+        max:
+          type: integer
+        avg:
+          type: integer
+        change:
+          type: integer
+          description: 기간 내 변동
+
+    YieldPredictionRequest:
+      type: object
+      required:
+        - temperature
+        - humidity
+      properties:
+        month:
+          type: integer
+          description: 월 (1-12)
+          example: 11
+        temperature:
+          type: number
+          description: 온도 (°C)
+          example: 25.5
+        humidity:
+          type: number
+          description: 습도 (%)
+          example: 70
+        co2:
+          type: number
+          description: CO2 농도 (ppm)
+          default: 700
+          example: 800
+        solar_radiation:
+          type: number
+          description: 일사량 (J/㎠/day)
+          default: 1200
+          example: 1500
+        growth_stage:
+          type: string
+          description: 생육 단계
+          enum:
+            - 생육초기
+            - 생육중기(9~10월)
+            - 생육중기(11~12월)
+            - 생육중기(1~2월)
+            - 생육중기(3~6월)
+            - 생육말기(7~8월)
+          example: "생육중기(11~12월)"
+        facility_type:
+          type: string
+          description: 시설 타입
+          enum:
+            - 비닐하우스
+            - 유리온실
+          default: 비닐하우스
+
+    YieldPredictionResponse:
+      type: object
+      properties:
+        predicted_yield:
+          type: number
+          description: 예측 수확량 (kg/3.3㎡)
+          example: 8.52
+        confidence_interval:
+          type: object
+          properties:
+            lower:
+              type: number
+              description: 하한값
+            upper:
+              type: number
+              description: 상한값
+            std_dev:
+              type: number
+              description: 표준편차
+        input_summary:
+          type: object
+          description: 입력 데이터 요약
+        recommendations:
+          type: array
+          items:
+            type: string
+          description: AI 추천 사항
+
+    DiaryEntry:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+          description: 일지 날짜
+        harvest_kg:
+          type: number
+          description: 수확량 (kg)
+        memo:
+          type: string
+          description: 메모
+
+    DiaryListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        entries:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                format: date
+              ready:
+                type: integer
+              not_ready:
+                type: integer
+              disease:
+                type: integer
+              truss:
+                type: integer
+              memo:
+                type: string
+        total_days:
+          type: integer
+
+    HomeData:
+      type: object
+      properties:
+        success:
+          type: boolean
+        realtime:
+          $ref: '#/components/schemas/TomatoDataLowerCase'
+        today_summary:
+          type: object
+          properties:
+            total_detected:
+              type: integer
+            total_ready:
+              type: integer
+            total_disease:
+              type: integer
+            harvest_rate:
+              type: number
+        alerts:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+                enum: [disease, harvest, warning]
+              message:
+                type: string
+              time:
+                type: string
+                format: date-time
+              severity:
+                type: string
+                enum: [low, medium, high, info]
+        stream_url:
+          type: string
+          description: 실시간 스트리밍 URL
+        last_updated:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          description: 에러 메시지
+        code:
+          type: string
+          description: 에러 코드
