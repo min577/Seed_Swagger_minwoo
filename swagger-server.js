@@ -1,10 +1,14 @@
 /**
- * 토마토 스마트팜 API Swagger 서버
+ * 토마토 스마트팜 API Swagger 서버 v2.0
  * 
  * n8n 워크플로우 기반 API 문서화 서버입니다.
- * 실제 API 요청은 n8n 서버(seedfarm.co.kr:5678)로 전달됩니다.
+ * 실제 API 요청은 n8n 서버(n8n.seedfarm.co.kr)로 전달됩니다.
  * 
  * FormData(multipart/form-data) 파일 업로드를 지원합니다.
+ * 
+ * 변경사항 (v2.0):
+ * - 서버 URL: seedfarm.co.kr:5678 → n8n.seedfarm.co.kr
+ * - 지식베이스 연동 (농촌진흥청 자료)
  */
 
 const express = require('express');
@@ -17,7 +21,7 @@ const FormData = require('form-data');
 
 const app = express();
 const PORT = process.env.PORT || 3300;
-const N8N_BASE_URL = process.env.N8N_URL || 'http://seedfarm.co.kr:5678/webhook';
+const N8N_BASE_URL = process.env.N8N_URL || 'https://n8n.seedfarm.co.kr/webhook';
 
 // Multer 설정 (메모리 저장)
 const upload = multer({ 
@@ -42,7 +46,7 @@ const swaggerOptions = {
     .swagger-ui .info .title { color: #e53935; }
     .swagger-ui .info .title::before { content: "🍅 "; }
   `,
-  customSiteTitle: "토마토 스마트팜 API",
+  customSiteTitle: "토마토 스마트팜 API v2.0",
   customfavIcon: "https://em-content.zobj.net/source/apple/354/tomato_1f345.png"
 };
 
@@ -53,12 +57,19 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument, swaggerOp
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
+    version: '2.0.0',
     message: '토마토 스마트팜 API 문서 서버',
     swagger_ui: `http://localhost:${PORT}/api-docs`,
     api_server: N8N_BASE_URL,
+    features: {
+      knowledge_base: '농촌진흥청 농업기술길잡이 106 (병해 8종, 해충 6종, 영양장애 10종, 생리장해 18종)',
+      yolo_analysis: '4-class 토마토 분류 (Ready, Not_Ready, Disease_Bad, Truss)',
+      yield_prediction: 'Random Forest 모델 (R² = 0.9084)'
+    },
     endpoints: {
       capture_analyze: `POST ${N8N_BASE_URL}/capture-analyze`,
-      disease_diagnosis: `POST ${N8N_BASE_URL}/disease-diagnosis`
+      disease_diagnosis: `POST ${N8N_BASE_URL}/disease-diagnosis`,
+      chat_message: `POST ${N8N_BASE_URL}/chat-message`
     }
   });
 });
@@ -161,6 +172,41 @@ app.post('/proxy/disease-diagnosis', async (req, res) => {
 });
 
 /**
+ * POST /proxy/chat-message
+ * AI 챗봇 프록시 (지식베이스 연동)
+ */
+app.post('/proxy/chat-message', async (req, res) => {
+  try {
+    const { message } = req.body;
+    
+    if (!message) {
+      return res.status(400).json({ 
+        success: false, 
+        error: '메시지가 필요합니다.' 
+      });
+    }
+
+    const response = await fetch(`${N8N_BASE_URL}/chat-message`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ message })
+    });
+
+    const data = await response.json();
+    res.status(response.status).json(data);
+
+  } catch (error) {
+    console.error('프록시 오류 (chat-message):', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message
+    });
+  }
+});
+
+/**
  * 범용 프록시 (JSON 요청)
  * GET/POST 요청을 n8n 서버로 전달
  */
@@ -196,8 +242,8 @@ app.all('/proxy/*', async (req, res) => {
 // 서버 시작
 app.listen(PORT, () => {
   console.log('');
-  console.log('🍅 토마토 스마트팜 API 문서 서버');
-  console.log('================================');
+  console.log('🍅 토마토 스마트팜 API 문서 서버 v2.0');
+  console.log('=====================================');
   console.log(`📚 Swagger UI: http://localhost:${PORT}/api-docs`);
   console.log(`📄 OpenAPI JSON: http://localhost:${PORT}/api-docs.json`);
   console.log(`🔗 API 서버: ${N8N_BASE_URL}`);
@@ -205,5 +251,9 @@ app.listen(PORT, () => {
   console.log('📤 프록시 엔드포인트:');
   console.log(`   POST /proxy/capture-analyze    → YOLO 분석 (FormData)`);
   console.log(`   POST /proxy/disease-diagnosis  → 병해충 진단 (Base64 JSON)`);
+  console.log(`   POST /proxy/chat-message       → AI 챗봇 (지식베이스 연동)`);
+  console.log('');
+  console.log('📖 지식베이스: 농촌진흥청 농업기술길잡이 106');
+  console.log('   - 병해 8종, 해충 6종, 영양장애 10종, 생리장해 18종, 바이러스 3종');
   console.log('');
 });

@@ -9,19 +9,27 @@ info:
     
     - 🎥 **카메라 제어**: 라즈베리파이 카메라 원격 제어
     - 📊 **데이터 조회**: 실시간/히스토리/요약 데이터 조회
-    - 🤖 **AI 분석**: YOLO 기반 토마토 분석, AI 챗봇
-    - 💰 **시장 가격**: KAMIS 도매가, 온라인 가격 비교
-    - 🌱 **수확량 예측**: ML 모델 기반 예측
+    - 🤖 **AI 분석**: YOLO 기반 토마토 분석, 지식베이스 연동 AI 챗봇
+    - 💰 **시장 가격**: KAMIS 도매가, 네이버 쇼핑 온라인 가격 비교
+    - 🌱 **수확량 예측**: ML 모델 기반 예측 (R² 0.9084)
     - 📝 **농장 일지**: 일지 조회/저장
     
     ## 서버 환경
-    - **운영 서버**: http://seedfarm.co.kr:5678
-    - **내부 서버**: http://192.168.49.101:5679
+    - **운영 서버**: https://n8n.seedfarm.co.kr/webhook
+    - **내부 서버**: http://192.168.49.200:5679/webhook
+    
+    ## 지식베이스
+    AI 챗봇은 농촌진흥청 「농업기술길잡이 106 - 토마토」 364페이지 자료를 기반으로 합니다:
+    - 영양장애 10종 (질소, 인산, 칼리, 칼슘, 마그네슘 등)
+    - 생리장해 18종 (열과, 배꼽썩음과, 공동과 등)
+    - 병해 8종 (잎곰팡이병, 흰가루병, 역병 등)
+    - 해충 6종 (온실가루이, 총채벌레, 굴파리 등)
+    - 바이러스 3종 (TYLCV, ToMV, CMV)
     
     ## 인증
     현재 API 키 인증이 필요한 엔드포인트는 `api_key` 파라미터를 사용합니다.
     
-  version: 1.0.0
+  version: 2.0.0
   contact:
     name: SEED FARM 개발팀
     email: dev@seedfarm.co.kr
@@ -29,9 +37,9 @@ info:
     name: ISC
 
 servers:
-  - url: http://seedfarm.co.kr:5678/webhook
-    description: 운영 서버 (외부 접근용)
-  - url: http://192.168.49.101:5679/webhook
+  - url: https://n8n.seedfarm.co.kr/webhook
+    description: 운영 서버 (외부 접근용, HTTPS)
+  - url: http://192.168.49.200:5679/webhook
     description: 내부 서버 (사내망 전용)
 
 tags:
@@ -40,11 +48,11 @@ tags:
   - name: 🎥 Camera
     description: 라즈베리파이 카메라 제어 API
   - name: 🤖 AI
-    description: AI 챗봇 및 이미지 분석 API
+    description: AI 챗봇 및 이미지 분석 API (지식베이스 연동)
   - name: 💰 Market
-    description: 시장 가격 정보 API
+    description: 시장 가격 정보 API (KAMIS + 네이버 쇼핑)
   - name: 🌱 Prediction
-    description: 수확량 예측 API
+    description: 수확량 예측 API (ML 모델)
   - name: 📝 Diary
     description: 농장 일지 API
   - name: 🏠 Home
@@ -117,12 +125,12 @@ paths:
                       $ref: '#/components/schemas/TomatoDataWithTime'
               example:
                 data:
-                  - time: "2024-11-21T06:00:00Z"
+                  - time: "2025-12-10T06:00:00Z"
                     Ready: 40
                     Not_Ready: 20
                     Disease_Bad: 1
                     Truss: 7
-                  - time: "2024-11-21T06:10:00Z"
+                  - time: "2025-12-10T06:10:00Z"
                     Ready: 42
                     Not_Ready: 21
                     Disease_Bad: 1
@@ -160,7 +168,7 @@ paths:
         
         **처리 순서**:
         1. 라즈베리파이 스냅샷 요청
-        2. YOLO 서버로 이미지 전송
+        2. YOLO 서버(localhost:8001)로 이미지 전송
         3. 분석 결과 InfluxDB 저장
         4. 결과 반환
       operationId: captureNow
@@ -180,7 +188,7 @@ paths:
                   Truss: 6
                   ripeness_rate: 66
                   disease_rate: 4
-                timestamp: "2024-11-21T07:30:00Z"
+                timestamp: "2025-12-10T07:30:00Z"
         '500':
           description: 촬영 실패
 
@@ -259,7 +267,7 @@ paths:
               example:
                 monitoring: true
                 interval: 600
-                last_capture: "2024-11-21T07:20:00Z"
+                last_capture: "2025-12-10T07:20:00Z"
                 white_balance: "auto"
 
   /camera-interval:
@@ -324,9 +332,16 @@ paths:
     post:
       tags:
         - 🤖 AI
-      summary: AI 챗봇 메시지 전송
+      summary: AI 챗봇 메시지 전송 (지식베이스 연동)
       description: |
         토마토 재배 전문 AI 어시스턴트에게 질문합니다.
+        
+        **지식베이스 연동** (농촌진흥청 공식 자료 기반):
+        - 병해 질문: 잎곰팡이병, 흰가루병, 역병, 시듦병 등 8종
+        - 해충 질문: 온실가루이, 총채벌레, 아메리카잎굴파리 등 6종
+        - 영양장애 질문: 질소/인산/칼리/칼슘 결핍 및 과잉 등 10종
+        - 생리장해 질문: 열과, 배꼽썩음과, 공동과, 착색불량 등 18종
+        - 바이러스 질문: TYLCV, ToMV, CMV 3종
         
         **지원 기능**:
         - 텍스트만 전송
@@ -336,6 +351,7 @@ paths:
         **특수 기능**:
         - 생육 데이터 포함 시 수확량 예측 API 자동 호출
         - 이미지 포함 시 YOLO 분석 후 결과 기반 답변
+        - 병해/해충/영양 키워드 감지 시 지식베이스 자동 검색
       operationId: sendChatMessage
       requestBody:
         required: true
@@ -347,11 +363,19 @@ paths:
                 message:
                   type: string
                   description: 사용자 메시지
-                  example: "현재 온도 25도, 습도 70%일 때 예상 수확량은?"
+                  example: "토마토 잎에 하얀 곰팡이가 생겼어요"
                 image:
                   type: string
                   format: binary
                   description: 토마토 이미지 (JPEG)
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  description: 사용자 메시지
+                  example: "배꼽썩음과가 발생했어요"
       responses:
         '200':
           description: 성공
@@ -359,10 +383,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ChatResponse'
-              example:
-                response: "현재 환경에서 예상 수확량은 약 8.5kg/3.3㎡ 입니다. 🍅 온도가 적정 범위(25-28°C)에 있어 양호합니다..."
-                timestamp: "2024-11-21T07:30:00Z"
-                success: true
+              examples:
+                disease_question:
+                  summary: 병해 질문 응답
+                  value:
+                    response: "말씀하신 증상은 '흰가루병'일 가능성이 높습니다. 🧐 통풍이 원활하지 않거나 야간 온도가 낮을 때 발생하기 쉽습니다. 감염된 잎은 제거하고 환기량을 늘려주세요."
+                    timestamp: "2025-12-10T07:39:07.566Z"
+                    success: true
+                pest_question:
+                  summary: 해충 질문 응답
+                  value:
+                    response: "가루이 방제에는 노란 끈끈이 트랩이 효과적입니다. 🚨 천연 살충제나 온실가루이좀 같은 천적 활용도 좋습니다. 잎 뒷면을 꾸준히 확인해주세요!"
+                    timestamp: "2025-12-10T07:39:20.955Z"
+                    success: true
 
   /capture-analyze:
     post:
@@ -375,6 +408,12 @@ paths:
         **multipart/form-data** 형식으로 이미지를 전송하세요.
         
         **지원 형식**: JPEG, PNG
+        
+        **YOLO 클래스**:
+        - ready: 수확 가능 (완숙)
+        - not_ready: 미성숙
+        - truss: 화방
+        - Disease_Bad: 병해/불량
       operationId: analyzeImage
       requestBody:
         required: true
@@ -401,9 +440,9 @@ paths:
     post:
       tags:
         - 🤖 AI
-      summary: 병해충 진단 (Base64)
+      summary: 병해충 AI 진단 (Base64)
       description: |
-        토마토 이미지를 AI가 분석하여 병해충 상태를 진단합니다.
+        토마토 이미지를 AI(GPT-4 Vision)가 분석하여 병해충 상태를 진단합니다.
         
         **application/json** 형식으로 Base64 인코딩된 이미지를 전송하세요.
         
@@ -451,7 +490,7 @@ paths:
         
         **내부 처리 순서**:
         1. 이미지 수신
-        2. YOLO 분석
+        2. YOLO 분석 (localhost:8001)
         3. InfluxDB 저장
         4. 이미지 파일 저장 (김제 실증 데이터)
       operationId: receiveRaspberryImage
@@ -494,6 +533,14 @@ paths:
         KAMIS API를 통해 오늘의 토마토 도매 시장 가격을 조회합니다.
         
         **데이터 출처**: 농산물유통정보(KAMIS)
+        
+        **반환 정보**:
+        - 오늘 가격 (원/kg)
+        - 어제 가격
+        - 1주일 전 가격
+        - 한달 전 가격
+        - 1년 전 가격
+        - 변동률
       operationId: getMarketPrice
       responses:
         '200':
@@ -512,9 +559,13 @@ paths:
         KAMIS 도매 가격과 네이버 쇼핑 온라인 가격을 비교합니다.
         
         **비교 항목**:
-        - 도매가 (상품/중품/방울토마토)
-        - 온라인 최저가/중간가/최고가
+        - 도매가 (상품/중품/방울토마토) - 원/kg
+        - 온라인 최저가/중간가/최고가 - 원/kg
         - 마진율 계산
+        
+        **데이터 출처**:
+        - 도매가: KAMIS API
+        - 온라인가: 네이버 쇼핑 검색 API (완숙토마토 1kg 기준)
       operationId: getPriceCompare
       responses:
         '200':
@@ -523,6 +574,28 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PriceCompare'
+              example:
+                success: true
+                date: "2025-12-10"
+                wholesale_summary:
+                  high: 3520
+                  mid: 3080
+                  cherry: 5800
+                online_summary:
+                  lowest_price: 5900
+                  lowest_mall: "채소팜"
+                  median_price: 13050
+                  average_price: 13566
+                  mall_count: 49
+                comparison:
+                  - grade: "상품"
+                    wholesale_price: 3520
+                    online_lowest: 5900
+                    margin_rate: 68
+                  - grade: "중품"
+                    wholesale_price: 3080
+                    online_lowest: 5900
+                    margin_rate: 92
 
   /price-history:
     get:
@@ -532,23 +605,29 @@ paths:
       description: |
         기간별 토마토 가격 추이를 조회합니다.
         
-        **기본값**: 최근 7일
+        **기본값**: 최근 14일 (일요일 제외)
+        
+        **통계 정보**:
+        - 최저/최고/평균 가격
+        - 기간 내 변동폭
       operationId: getPriceHistory
       parameters:
         - name: start
           in: query
           description: 시작일 (YYYY-MM-DD)
+          required: true
           schema:
             type: string
             format: date
-            example: "2024-11-14"
+            example: "2025-12-03"
         - name: end
           in: query
           description: 종료일 (YYYY-MM-DD)
+          required: true
           schema:
             type: string
             format: date
-            example: "2024-11-21"
+            example: "2025-12-10"
       responses:
         '200':
           description: 성공
@@ -556,6 +635,32 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PriceHistory'
+              example:
+                success: true
+                period:
+                  start: "2025-12-03"
+                  end: "2025-12-10"
+                count: 5
+                data:
+                  - date: "2025-12-03"
+                    high: 3640
+                    mid: 3120
+                    cherry: 6000
+                  - date: "2025-12-10"
+                    high: 3520
+                    mid: 3080
+                    cherry: 5800
+                stats:
+                  high:
+                    min: 3520
+                    max: 3640
+                    avg: 3584
+                    change: -120
+                  mid:
+                    min: 3080
+                    max: 3120
+                    avg: 3112
+                    change: -40
 
   # ===== 수확량 예측 API =====
   /yield-prediction:
@@ -568,11 +673,14 @@ paths:
         
         **모델 정보**:
         - 알고리즘: Random Forest
-        - 학습 데이터: 농촌진흥청 스마트팜 DB (103,000+ 데이터)
-        - 정확도: R² = 0.9084
+        - 학습 데이터: 농촌진흥청 스마트팜 DB (1,269개 데이터)
+        - 정확도: R² = 0.9084, CV R² = 0.8257
+        - RMSE: 1,366.68 kg
         
         **필수 입력**: 온도, 습도
-        **선택 입력**: CO2, 일사량, 생육단계, 시설타입
+        **선택 입력**: CO2, EC, pH, 일사량, 생육데이터, 시설타입, 재배면적
+        
+        **시계열 피처**: 전월 수확량, 3개월 평균 수확량 (정확도 향상)
       operationId: predictYield
       requestBody:
         required: true
@@ -752,7 +860,7 @@ components:
               type: string
               format: date-time
               description: 측정 시간
-              example: "2024-11-21T06:00:00Z"
+              example: "2025-12-10T06:00:00Z"
 
     TomatoDataLowerCase:
       type: object
@@ -906,17 +1014,26 @@ components:
               example: "완숙토마토"
             unit:
               type: string
-              example: "5kg"
+              example: "1kg"
             rank:
               type: string
               example: "상품"
             price:
               type: integer
               description: 오늘 가격 (원/kg)
-              example: 3500
+              example: 3520
             yesterday_price:
               type: integer
               description: 어제 가격
+            week_ago_price:
+              type: integer
+              description: 1주일 전 가격
+            month_ago_price:
+              type: integer
+              description: 한달 전 가격
+            year_ago_price:
+              type: integer
+              description: 1년 전 가격
             change:
               type: integer
               description: 가격 변동
@@ -953,13 +1070,19 @@ components:
               description: 방울토마토
         online_summary:
           type: object
-          description: 온라인가 요약
+          description: 온라인가 요약 (원/kg)
           properties:
             lowest_price:
               type: integer
             lowest_mall:
               type: string
+            lowest_title:
+              type: string
+            lowest_link:
+              type: string
             median_price:
+              type: integer
+            highest_price:
               type: integer
             average_price:
               type: integer
@@ -979,6 +1102,22 @@ components:
               margin_rate:
                 type: integer
                 description: 마진율 (%)
+        online_detail:
+          type: array
+          description: 온라인 상품 목록 (가격순)
+          items:
+            type: object
+            properties:
+              mall:
+                type: string
+              title:
+                type: string
+              price:
+                type: integer
+              price_per_kg:
+                type: integer
+              link:
+                type: string
 
     PriceHistory:
       type: object
@@ -1040,66 +1179,100 @@ components:
         - temperature
         - humidity
       properties:
-        month:
-          type: integer
-          description: 월 (1-12)
-          example: 11
         temperature:
           type: number
-          description: 온도 (°C)
+          description: 내부 온도 (°C) [필수]
           example: 25.5
         humidity:
           type: number
-          description: 습도 (%)
+          description: 내부 습도 (%) [필수]
           example: 70
+        month:
+          type: integer
+          description: 월 (1-12), 없으면 현재 월
+          example: 12
         co2:
           type: number
           description: CO2 농도 (ppm)
-          default: 700
+          default: 600
           example: 800
-        solar_radiation:
+        ec:
           type: number
-          description: 일사량 (J/㎠/day)
-          default: 1200
-          example: 1500
-        growth_stage:
-          type: string
-          description: 생육 단계
-          enum:
-            - 생육초기
-            - 생육중기(9~10월)
-            - 생육중기(11~12월)
-            - 생육중기(1~2월)
-            - 생육중기(3~6월)
-            - 생육말기(7~8월)
-          example: "생육중기(11~12월)"
+          description: EC (dS/m)
+          default: 2.0
+          example: 2.5
+        ph:
+          type: number
+          description: pH
+          default: 6.0
+          example: 6.2
+        solar:
+          type: number
+          description: 일사량 (W/㎡)
+          default: 1000
+          example: 1200
         facility_type:
           type: string
           description: 시설 타입
           enum:
-            - 비닐하우스
-            - 유리온실
-          default: 비닐하우스
+            - 비닐
+            - 유리
+          default: 비닐
+        area:
+          type: number
+          description: 재배 면적 (평)
+          default: 1000
+          example: 1000
+        growth_length:
+          type: number
+          description: 초장 (cm)
+        leaf_count:
+          type: number
+          description: 엽수 (개)
+        stem_thickness:
+          type: number
+          description: 경경 (mm)
+        harvest_cluster:
+          type: number
+          description: 수확 화방 수
+        flower_cluster:
+          type: number
+          description: 개화 화방 수
+        yield_last_month:
+          type: number
+          description: 전월 수확량 (kg) - 정확도 향상
+        yield_avg_3month:
+          type: number
+          description: 3개월 평균 수확량 (kg) - 정확도 향상
 
     YieldPredictionResponse:
       type: object
       properties:
+        success:
+          type: boolean
         predicted_yield:
           type: number
           description: 예측 수확량 (kg/3.3㎡)
-          example: 8.52
+          example: 2847.52
+        predicted_yield_total:
+          type: number
+          description: 전체 면적 예측 수확량 (kg)
+          example: 862884.85
         confidence_interval:
           type: object
           properties:
             lower:
               type: number
-              description: 하한값
+              description: 하한값 (85%)
             upper:
               type: number
-              description: 상한값
-            std_dev:
-              type: number
-              description: 표준편차
+              description: 상한값 (115%)
+            confidence_level:
+              type: string
+        model_used:
+          type: string
+          description: 사용된 모델 버전
+          example: "v3_vinyl"
         input_summary:
           type: object
           description: 입력 데이터 요약

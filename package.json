@@ -1,7 +1,7 @@
 {
   "name": "tomato-smartfarm-api",
-  "version": "1.0.0",
-  "description": "토마토 스마트팜 REST API 문서 - Swagger/OpenAPI 3.0",
+  "version": "2.0.0",
+  "description": "토마토 스마트팜 REST API 문서 - Swagger/OpenAPI 3.0 (지식베이스 연동)",
   "main": "swagger-server.js",
   "scripts": {
     "start": "node swagger-server.js",
@@ -16,7 +16,9 @@
     "openapi",
     "n8n",
     "yolo",
-    "agriculture"
+    "agriculture",
+    "knowledge-base",
+    "ai-chatbot"
   ],
   "author": "SEED FARM",
   "license": "ISC",
@@ -30,5 +32,12 @@
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/seedfarm/tomato-smartfarm-api"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
