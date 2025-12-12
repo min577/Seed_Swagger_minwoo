@@ -10,6 +10,7 @@ info:
     - 🎥 **카메라 제어**: 라즈베리파이 카메라 원격 제어
     - 📊 **데이터 조회**: 실시간/히스토리/요약 데이터 조회
     - 🤖 **AI 분석**: YOLO 기반 토마토 분석, 지식베이스 연동 AI 챗봇
+    - 💬 **채팅 히스토리**: 대화 내역 조회/삭제
     - 💰 **시장 가격**: KAMIS 도매가, 네이버 쇼핑 온라인 가격 비교
     - 🌱 **수확량 예측**: ML 모델 기반 예측 (R² 0.9084)
     - 📝 **농장 일지**: 일지 조회/저장
@@ -29,7 +30,7 @@ info:
     ## 인증
     현재 API 키 인증이 필요한 엔드포인트는 `api_key` 파라미터를 사용합니다.
     
-  version: 2.0.0
+  version: 2.1.0
   contact:
     name: SEED FARM 개발팀
     email: dev@seedfarm.co.kr
@@ -49,6 +50,8 @@ tags:
     description: 라즈베리파이 카메라 제어 API
   - name: 🤖 AI
     description: AI 챗봇 및 이미지 분석 API (지식베이스 연동)
+  - name: 💬 Chat History
+    description: 채팅 대화 내역 관리 API
   - name: 💰 Market
     description: 시장 가격 정보 API (KAMIS + 네이버 쇼핑)
   - name: 🌱 Prediction
@@ -343,15 +346,9 @@ paths:
         - 생리장해 질문: 열과, 배꼽썩음과, 공동과, 착색불량 등 18종
         - 바이러스 질문: TYLCV, ToMV, CMV 3종
         
-        **지원 기능**:
-        - 텍스트만 전송
-        - 텍스트 + 이미지 전송 (토마토 분석 요청)
-        - 이미지만 전송 (자동 YOLO 분석)
-        
-        **특수 기능**:
-        - 생육 데이터 포함 시 수확량 예측 API 자동 호출
-        - 이미지 포함 시 YOLO 분석 후 결과 기반 답변
-        - 병해/해충/영양 키워드 감지 시 지식베이스 자동 검색
+        **세션 관리**:
+        - `session_id`를 전송하면 대화 내역이 DB에 저장됩니다.
+        - 동일한 `session_id`로 연속 대화가 가능합니다.
       operationId: sendChatMessage
       requestBody:
         required: true
@@ -364,6 +361,10 @@ paths:
                   type: string
                   description: 사용자 메시지
                   example: "토마토 잎에 하얀 곰팡이가 생겼어요"
+                session_id:
+                  type: string
+                  description: 세션 ID (대화 저장용)
+                  example: "my_session_001"
                 image:
                   type: string
                   format: binary
@@ -376,6 +377,10 @@ paths:
                   type: string
                   description: 사용자 메시지
                   example: "배꼽썩음과가 발생했어요"
+                session_id:
+                  type: string
+                  description: 세션 ID (대화 저장용)
+                  example: "my_session_001"
       responses:
         '200':
           description: 성공
@@ -390,12 +395,7 @@ paths:
                     response: "말씀하신 증상은 '흰가루병'일 가능성이 높습니다. 🧐 통풍이 원활하지 않거나 야간 온도가 낮을 때 발생하기 쉽습니다. 감염된 잎은 제거하고 환기량을 늘려주세요."
                     timestamp: "2025-12-10T07:39:07.566Z"
                     success: true
-                pest_question:
-                  summary: 해충 질문 응답
-                  value:
-                    response: "가루이 방제에는 노란 끈끈이 트랩이 효과적입니다. 🚨 천연 살충제나 온실가루이좀 같은 천적 활용도 좋습니다. 잎 뒷면을 꾸준히 확인해주세요!"
-                    timestamp: "2025-12-10T07:39:20.955Z"
-                    success: true
+                    threadId: "my_session_001"
 
   /capture-analyze:
     post:
@@ -522,6 +522,133 @@ paths:
                   timestamp:
                     type: string
                     format: date-time
+
+  # ===== Chat History API =====
+  /chat-message/history:
+    get:
+      tags:
+        - 💬 Chat History
+      summary: 대화 목록 조회
+      description: |
+        저장된 채팅 대화 목록을 페이지네이션으로 조회합니다.
+        
+        **정렬**: 최신순 (created_at DESC)
+      operationId: getChatHistoryList
+      parameters:
+        - name: page
+          in: query
+          description: 페이지 번호 (1부터 시작)
+          required: false
+          schema:
+            type: integer
+            default: 1
+            example: 1
+        - name: limit
+          in: query
+          description: 페이지당 항목 수
+          required: false
+          schema:
+            type: integer
+            default: 10
+            example: 10
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatHistoryListResponse'
+              example:
+                success: true
+                data:
+                  - id: "my_session_001"
+                    title: "토마토 잎에 하얀 곰팡이가 생겼어요"
+                    createdAt: "2025-12-12T06:20:00Z"
+                  - id: "thread_1765517989008"
+                    title: "배꼽썩음과 발생 원인"
+                    createdAt: "2025-12-12T05:30:00Z"
+                pagination:
+                  currentPage: 1
+                  totalPages: 3
+                  totalCount: 25
+                  limit: 10
+
+  /chat-message/history/detail:
+    get:
+      tags:
+        - 💬 Chat History
+      summary: 대화 상세 조회
+      description: |
+        특정 대화의 전체 메시지 내역을 조회합니다.
+        
+        **정렬**: 시간순 (created_at ASC)
+      operationId: getChatHistoryDetail
+      parameters:
+        - name: threadId
+          in: query
+          description: 대화 스레드 ID
+          required: true
+          schema:
+            type: string
+            example: "my_session_001"
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatHistoryDetailResponse'
+              example:
+                success: true
+                timestamp: "2025-12-12T06:45:00Z"
+                messages:
+                  - role: "user"
+                    content: "토마토 잎에 하얀 곰팡이가 생겼어요"
+                  - role: "assistant"
+                    content: "말씀하신 증상은 '흰가루병'일 가능성이 높습니다..."
+        '404':
+          description: 대화를 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: "대화를 찾을 수 없습니다"
+
+  /chat-message/history/delete:
+    delete:
+      tags:
+        - 💬 Chat History
+      summary: 대화 삭제
+      description: |
+        특정 대화와 관련된 모든 메시지를 삭제합니다.
+        
+        **주의**: 삭제된 대화는 복구할 수 없습니다.
+      operationId: deleteChatHistory
+      parameters:
+        - name: threadId
+          in: query
+          description: 삭제할 대화 스레드 ID
+          required: true
+          schema:
+            type: string
+            example: "my_session_001"
+      responses:
+        '200':
+          description: 삭제 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatDeleteResponse'
+              example:
+                success: true
+                message: "대화가 삭제되었습니다"
+                deletedThreadId: "my_session_001"
 
   # ===== 시장 가격 API =====
   /market-price:
@@ -862,23 +989,6 @@ components:
               description: 측정 시간
               example: "2025-12-10T06:00:00Z"
 
-    TomatoDataLowerCase:
-      type: object
-      description: 토마토 분석 결과 (소문자 버전 - 앱용)
-      properties:
-        ready:
-          type: integer
-          example: 45
-        not_ready:
-          type: integer
-          example: 23
-        disease:
-          type: integer
-          example: 2
-        truss:
-          type: integer
-          example: 8
-
     DailySummary:
       type: object
       properties:
@@ -958,6 +1068,9 @@ components:
           format: date-time
         success:
           type: boolean
+        threadId:
+          type: string
+          description: 저장된 대화 스레드 ID
 
     AnalysisResponse:
       type: object
@@ -997,6 +1110,70 @@ components:
         timestamp:
           type: string
           format: date-time
+
+    # ===== Chat History Schemas =====
+    ChatHistoryListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                description: 대화 스레드 ID
+              title:
+                type: string
+                description: 대화 제목 (첫 메시지 요약)
+              createdAt:
+                type: string
+                format: date-time
+                description: 대화 생성 시간
+        pagination:
+          type: object
+          properties:
+            currentPage:
+              type: integer
+            totalPages:
+              type: integer
+            totalCount:
+              type: integer
+            limit:
+              type: integer
+
+    ChatHistoryDetailResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        timestamp:
+          type: string
+          format: date-time
+        messages:
+          type: array
+          items:
+            type: object
+            properties:
+              role:
+                type: string
+                enum: [user, assistant]
+                description: 메시지 발신자
+              content:
+                type: string
+                description: 메시지 내용
+
+    ChatDeleteResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        deletedThreadId:
+          type: string
 
     MarketPrice:
       type: object
@@ -1076,13 +1253,7 @@ components:
               type: integer
             lowest_mall:
               type: string
-            lowest_title:
-              type: string
-            lowest_link:
-              type: string
             median_price:
-              type: integer
-            highest_price:
               type: integer
             average_price:
               type: integer
@@ -1102,5 +1273,153 @@ components:
               margin_rate:
                 type: integer
                 description: 마진율 (%)
-        online_detail:
-          typSharing of this file was blocked by Exosphere for violating corporate policies.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
+
+    PriceHistory:
+      type: object
+      properties:
+        success:
+          type: boolean
+        period:
+          type: object
+          properties:
+            start:
+              type: string
+              format: date
+            end:
+              type: string
+              format: date
+        count:
+          type: integer
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                format: date
+              high:
+                type: integer
+              mid:
+                type: integer
+              cherry:
+                type: integer
+        stats:
+          type: object
+
+    YieldPredictionRequest:
+      type: object
+      required:
+        - temperature
+        - humidity
+      properties:
+        temperature:
+          type: number
+          description: 평균 온도 (°C)
+          example: 25.5
+        humidity:
+          type: number
+          description: 평균 습도 (%)
+          example: 70
+        co2:
+          type: number
+          description: CO2 농도 (ppm)
+          example: 800
+        ec:
+          type: number
+          description: EC 값 (dS/m)
+          example: 2.5
+        ph:
+          type: number
+          description: pH 값
+          example: 6.5
+        facility_type:
+          type: string
+          description: 시설 유형
+          enum: [비닐, 유리]
+          example: "비닐"
+        area:
+          type: number
+          description: 재배 면적 (m²)
+          example: 1000
+
+    YieldPredictionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        predicted_yield:
+          type: number
+          description: 예측 수확량 (kg/10a)
+        predicted_yield_total:
+          type: number
+          description: 총 예측 수확량 (kg)
+        confidence_interval:
+          type: object
+          properties:
+            lower:
+              type: number
+            upper:
+              type: number
+            confidence_level:
+              type: string
+        model_used:
+          type: string
+        recommendations:
+          type: array
+          items:
+            type: string
+
+    DiaryEntry:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        weather:
+          type: string
+        temperature:
+          type: number
+        humidity:
+          type: number
+        work_done:
+          type: string
+        notes:
+          type: string
+
+    DiaryListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/DiaryEntry'
+
+    HomeData:
+      type: object
+      properties:
+        success:
+          type: boolean
+        realtime:
+          $ref: '#/components/schemas/TomatoData'
+        summary:
+          $ref: '#/components/schemas/DailySummary'
+        alerts:
+          type: array
+          items:
+            type: object
+        streaming_url:
+          type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        message:
+          type: string
